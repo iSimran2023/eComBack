@@ -41,11 +41,13 @@ const productRoutes = require('./routes/product');
 const orderRoutes = require('./routes/order');
 const authRoutes = require('./routes/auth');
 const uploadRoutes = require('./routes/upload');
+const settingsRoutes = require('./routes/settings');
 
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/settings', settingsRoutes);
 
 // Catch-all 404 Logger
 app.use((req, res) => {
