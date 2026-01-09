@@ -21,123 +21,228 @@ app.use((req, res, next) => {
 });
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Database Connection
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/eCom';
-
-console.log('=== DEBUG INFO ===');
+// ========== DATABASE CONNECTION WITH FALLBACK ==========
+console.log('=== ENVIRONMENT DEBUG ===');
 console.log('NODE_ENV:', process.env.NODE_ENV);
 console.log('MONGO_URI exists:', !!process.env.MONGO_URI);
-console.log('Using connection:', process.env.MONGO_URI ? 'Atlas (from env)' : 'Local fallback');
 
-mongoose.connect(MONGO_URI)
-    .then(() => {
-        console.log('✅ MongoDB Connected to:', MONGO_URI.includes('cluster') ? 'Atlas Cloud' : 'Local DB');
-        console.log('Ready State:', mongoose.connection.readyState);
-    })
-    .catch(err => {
-        console.error('❌ MongoDB Connection Error:', err.message);
-        console.log('Debug: Make sure your IP is whitelisted in MongoDB Atlas (Network Access tab)');
-    });
+let isMongoConnected = false;
 
-// ========== DEBUG ROUTES ==========
-// ADD THESE BEFORE YOUR REGULAR ROUTES
-
-// 1. Simple test route
-app.get('/api/test', (req, res) => {
-    res.json({ 
-        message: 'API is working',
-        timestamp: new Date().toISOString(),
-        mongoState: mongoose.connection.readyState,
-        mongoStateText: ['disconnected', 'connected', 'connecting', 'disconnecting'][mongoose.connection.readyState]
-    });
-});
-
-// 2. Database test route
-app.get('/api/test-db', async (req, res) => {
+const connectMongoDB = async () => {
     try {
-        const state = mongoose.connection.readyState;
-        res.json({
-            mongoDB: {
-                connected: state === 1,
-                state: state,
-                stateText: ['disconnected', 'connected', 'connecting', 'disconnecting'][state],
-                host: mongoose.connection.host || 'N/A',
-                name: mongoose.connection.name || 'N/A'
-            },
-            environment: {
-                nodeEnv: process.env.NODE_ENV,
-                mongoUriSet: !!process.env.MONGO_URI,
-                mongoUriFirstChars: process.env.MONGO_URI ? process.env.MONGO_URI.substring(0, 20) + '...' : 'Not set'
-            },
-            timestamp: new Date().toISOString()
+        // Use local MongoDB for development, Atlas for production
+        const mongoUri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/eCom';
+        
+        console.log('Connecting to MongoDB...');
+        console.log('URI starts with:', mongoUri.substring(0, 50) + '...');
+        
+        await mongoose.connect(mongoUri, {
+            serverSelectionTimeoutMS: 10000,
+            socketTimeoutMS: 45000,
         });
+        
+        isMongoConnected = true;
+        console.log('✅ MongoDB Connected successfully');
+        console.log('Connection state:', mongoose.connection.readyState);
+        
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error('❌ MongoDB Connection Failed:', error.message);
+        console.log('⚠️  Running in FALLBACK MODE (No database)');
+        isMongoConnected = false;
+        
+        // Don't throw error - run in fallback mode
+        // This allows the server to start even without DB
     }
-});
+};
 
-// 3. Test auth without DB
-app.post('/api/auth/test', (req, res) => {
-    console.log('Test auth hit:', req.body);
-    res.json({ 
-        message: 'Auth test endpoint working',
-        received: req.body,
-        timestamp: new Date().toISOString()
+connectMongoDB();
+
+// ========== SIMPLE TEST ROUTES ==========
+app.get('/', (req, res) => {
+    res.json({
+        message: 'API is running',
+        database: isMongoConnected ? 'Connected' : 'Fallback mode (no DB)',
+        environment: process.env.NODE_ENV || 'development'
     });
 });
 
-// 4. Hardcoded login for testing
-app.post('/api/auth/login-test', (req, res) => {
-    console.log('Login test:', req.body);
+app.get('/api/health', (req, res) => {
+    res.json({
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        database: {
+            connected: isMongoConnected,
+            state: mongoose.connection.readyState
+        }
+    });
+});
+
+// ========== AUTH ROUTES WITH FALLBACK ==========
+// Simple login that works with or without database
+app.post('/api/auth/login', async (req, res) => {
+    console.log('🔐 Login attempt:', req.body);
     
-    if (req.body.email === 'admin@example.com' && req.body.password === 'admin123') {
+    const { email, password } = req.body;
+    
+    // Hardcoded admin credentials that always work
+    if (email === 'admin@example.com' && password === 'admin123') {
+        const jwt = require('jsonwebtoken');
+        const token = jwt.sign(
+            { id: 'admin-id-123', email: 'admin@example.com', role: 'admin' },
+            process.env.JWT_SECRET || 'default-secret-key',
+            { expiresIn: '7d' }
+        );
+        
         return res.json({
             success: true,
-            token: 'test-jwt-token-from-vercel',
+            token: token,
             user: {
-                id: 'test-user-123',
+                id: 'admin-id-123',
                 email: 'admin@example.com',
                 name: 'Admin User',
                 role: 'admin'
-            }
+            },
+            mode: isMongoConnected ? 'Database mode' : 'Fallback mode'
         });
     }
     
+    // If DB is connected, try to find user in database
+    if (isMongoConnected) {
+        try {
+            const User = require('./models/User');
+            const bcrypt = require('bcryptjs');
+            
+            const user = await User.findOne({ email });
+            if (!user) {
+                return res.status(401).json({ 
+                    success: false, 
+                    message: 'Invalid credentials' 
+                });
+            }
+            
+            const isMatch = await bcrypt.compare(password, user.password);
+            if (!isMatch) {
+                return res.status(401).json({ 
+                    success: false, 
+                    message: 'Invalid credentials' 
+                });
+            }
+            
+            const jwt = require('jsonwebtoken');
+            const token = jwt.sign(
+                { id: user._id, email: user.email, role: user.role },
+                process.env.JWT_SECRET || 'default-secret-key',
+                { expiresIn: '7d' }
+            );
+            
+            return res.json({
+                success: true,
+                token: token,
+                user: {
+                    id: user._id,
+                    email: user.email,
+                    name: user.name,
+                    role: user.role
+                },
+                mode: 'Database mode'
+            });
+            
+        } catch (dbError) {
+            console.error('Database error:', dbError);
+            // Fall through to error response
+        }
+    }
+    
+    // If we get here, credentials are wrong
     res.status(401).json({
         success: false,
-        message: 'Invalid credentials. Use admin@example.com / admin123'
+        message: 'Invalid credentials',
+        hint: 'Try: admin@example.com / admin123'
     });
 });
 
-// ========== YOUR EXISTING ROUTES ==========
-// Routes
-app.get('/', (req, res) => {
-    res.send('Bottle Customizer API is running');
+// Seed route that works in both modes
+app.post('/api/auth/seed', async (req, res) => {
+    if (!isMongoConnected) {
+        return res.json({
+            success: true,
+            message: 'Database not connected. Using hardcoded admin: admin@example.com / admin123'
+        });
+    }
+    
+    try {
+        const User = require('./models/User');
+        const bcrypt = require('bcryptjs');
+        
+        // Check if admin already exists
+        const existingAdmin = await User.findOne({ email: 'admin@example.com' });
+        if (existingAdmin) {
+            return res.json({
+                success: true,
+                message: 'Admin user already exists'
+            });
+        }
+        
+        // Create admin user
+        const hashedPassword = await bcrypt.hash('admin123', 10);
+        const adminUser = new User({
+            email: 'admin@example.com',
+            password: hashedPassword,
+            name: 'Admin User',
+            role: 'admin'
+        });
+        
+        await adminUser.save();
+        
+        res.json({
+            success: true,
+            message: 'Admin user created: admin@example.com / admin123'
+        });
+        
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
 });
 
+// ========== IMPORT OTHER ROUTES ==========
 // Import Routes
 const productRoutes = require('./routes/product');
 const orderRoutes = require('./routes/order');
-const authRoutes = require('./routes/auth');
 const uploadRoutes = require('./routes/upload');
 const settingsRoutes = require('./routes/settings');
 
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
-app.use('/api/auth', authRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/settings', settingsRoutes);
 
-// Catch-all 404 Logger
+// ========== CATCH-ALL ROUTE ==========
 app.use((req, res) => {
     console.log(`404 - Not Found: ${req.method} ${req.url}`);
-    res.status(404).json({ message: `Route ${req.method} ${req.url} not found` });
+    res.status(404).json({ 
+        message: `Route ${req.method} ${req.url} not found`,
+        availableRoutes: [
+            'GET /',
+            'GET /api/health',
+            'POST /api/auth/login',
+            'POST /api/auth/seed'
+        ]
+    });
 });
 
-if (process.env.NODE_ENV !== 'production') {
+// ========== START SERVER ==========
+// Export for Vercel
+module.exports = (req, res) => {
+    return app(req, res);
+};
+
+// For local development
+if (require.main === module) {
     app.listen(PORT, () => {
         console.log(`Server running on port ${PORT}`);
+        console.log(`Database: ${isMongoConnected ? 'Connected' : 'Fallback mode'}`);
     });
 }
-
-module.exports = app;
