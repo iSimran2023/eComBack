@@ -24,14 +24,93 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // Database Connection
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/eCom';
 
+console.log('=== DEBUG INFO ===');
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('MONGO_URI exists:', !!process.env.MONGO_URI);
+console.log('Using connection:', process.env.MONGO_URI ? 'Atlas (from env)' : 'Local fallback');
+
 mongoose.connect(MONGO_URI)
-    .then(() => console.log('MongoDB Connected to:', MONGO_URI.includes('cluster') ? 'Atlas Cloud' : 'Local DB'))
+    .then(() => {
+        console.log('✅ MongoDB Connected to:', MONGO_URI.includes('cluster') ? 'Atlas Cloud' : 'Local DB');
+        console.log('Ready State:', mongoose.connection.readyState);
+    })
     .catch(err => {
-        console.error('MongoDB Connection Error:', err.message);
+        console.error('❌ MongoDB Connection Error:', err.message);
         console.log('Debug: Make sure your IP is whitelisted in MongoDB Atlas (Network Access tab)');
     });
 
-// Routes (Placeholders for now)
+// ========== DEBUG ROUTES ==========
+// ADD THESE BEFORE YOUR REGULAR ROUTES
+
+// 1. Simple test route
+app.get('/api/test', (req, res) => {
+    res.json({ 
+        message: 'API is working',
+        timestamp: new Date().toISOString(),
+        mongoState: mongoose.connection.readyState,
+        mongoStateText: ['disconnected', 'connected', 'connecting', 'disconnecting'][mongoose.connection.readyState]
+    });
+});
+
+// 2. Database test route
+app.get('/api/test-db', async (req, res) => {
+    try {
+        const state = mongoose.connection.readyState;
+        res.json({
+            mongoDB: {
+                connected: state === 1,
+                state: state,
+                stateText: ['disconnected', 'connected', 'connecting', 'disconnecting'][state],
+                host: mongoose.connection.host || 'N/A',
+                name: mongoose.connection.name || 'N/A'
+            },
+            environment: {
+                nodeEnv: process.env.NODE_ENV,
+                mongoUriSet: !!process.env.MONGO_URI,
+                mongoUriFirstChars: process.env.MONGO_URI ? process.env.MONGO_URI.substring(0, 20) + '...' : 'Not set'
+            },
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 3. Test auth without DB
+app.post('/api/auth/test', (req, res) => {
+    console.log('Test auth hit:', req.body);
+    res.json({ 
+        message: 'Auth test endpoint working',
+        received: req.body,
+        timestamp: new Date().toISOString()
+    });
+});
+
+// 4. Hardcoded login for testing
+app.post('/api/auth/login-test', (req, res) => {
+    console.log('Login test:', req.body);
+    
+    if (req.body.email === 'admin@example.com' && req.body.password === 'admin123') {
+        return res.json({
+            success: true,
+            token: 'test-jwt-token-from-vercel',
+            user: {
+                id: 'test-user-123',
+                email: 'admin@example.com',
+                name: 'Admin User',
+                role: 'admin'
+            }
+        });
+    }
+    
+    res.status(401).json({
+        success: false,
+        message: 'Invalid credentials. Use admin@example.com / admin123'
+    });
+});
+
+// ========== YOUR EXISTING ROUTES ==========
+// Routes
 app.get('/', (req, res) => {
     res.send('Bottle Customizer API is running');
 });
