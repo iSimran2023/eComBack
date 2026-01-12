@@ -1,14 +1,10 @@
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 const path = require('path');
-
 dotenv.config({ path: path.join(__dirname, 'server', '.env') });
-
 const Order = require('./server/models/Order');
 const Product = require('./server/models/Product');
-
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/eCom';
-
 async function backfill() {
     try {
         console.log('Connecting to:', MONGO_URI);
@@ -19,10 +15,8 @@ async function backfill() {
             await mongoose.connect('mongodb://127.0.0.1:27017/eCom');
         }
         console.log('Connected to DB');
-
         const orders = await Order.find().populate('items.product');
         let updatedCount = 0;
-
         for (let order of orders) {
             let changed = false;
             for (let item of order.items) {
@@ -44,5 +38,4 @@ async function backfill() {
         process.exit(1);
     }
 }
-
 backfill();

@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const Product = require('../models/Product');
-
 // Get All Products
 router.get('/', async (req, res) => {
     try {
@@ -15,7 +14,6 @@ router.get('/', async (req, res) => {
         res.status(500).json({ message: err.message });
     }
 });
-
 // Get Featured Products
 router.get('/featured', async (req, res) => {
     try {
@@ -25,7 +23,6 @@ router.get('/featured', async (req, res) => {
         res.status(500).json({ message: err.message });
     }
 });
-
 // Get Single Product
 router.get('/:id', async (req, res) => {
     try {
@@ -36,7 +33,6 @@ router.get('/:id', async (req, res) => {
         res.status(500).json({ message: err.message });
     }
 });
-
 // Create Product (Admin only - simplified for now without middleware check)
 router.post('/', async (req, res) => {
     const product = new Product({
@@ -50,7 +46,6 @@ router.post('/', async (req, res) => {
         customizationFee: req.body.customizationFee,
         allowCustomization: req.body.allowCustomization
     });
-
     try {
         const newProduct = await product.save();
         res.status(201).json(newProduct);
@@ -58,12 +53,10 @@ router.post('/', async (req, res) => {
         res.status(400).json({ message: err.message });
     }
 });
-
 router.patch('/:id', async (req, res) => {
     console.log('PATCH Request Received for ID:', req.params.id);
     // DEBUG: Immediate response to rule out 404
     // return res.json({ debug: "Matched PATCH route", id: req.params.id }); 
-
     try {
         console.log('Update Request Body:', req.body);
         const product = await Product.findByIdAndUpdate(
@@ -81,7 +74,6 @@ router.patch('/:id', async (req, res) => {
         res.status(400).json({ message: err.message });
     }
 });
-
 // Delete Product
 router.delete('/:id', async (req, res) => {
     try {
@@ -91,5 +83,4 @@ router.delete('/:id', async (req, res) => {
         res.status(500).json({ message: err.message });
     }
 });
-
 module.exports = router;
