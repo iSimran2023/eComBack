@@ -4,10 +4,18 @@ const Product = require('../models/Product');
 // Get All Products
 router.get('/', async (req, res) => {
     try {
-        const { category, isFeatured } = req.query;
+        // Map 'featured' query param (from frontend) to 'isFeatured' (schema)
+        const { category, isFeatured, featured } = req.query;
         let query = {};
+
         if (category) query.category = category;
-        if (isFeatured !== undefined) query.isFeatured = isFeatured === 'true';
+
+        // Handle both 'isFeatured' and 'featured'
+        const featuredParam = isFeatured || featured;
+        if (featuredParam !== undefined) {
+            query.isFeatured = (featuredParam === 'true');
+        }
+
         const products = await Product.find(query);
         res.json(products);
     } catch (err) {
